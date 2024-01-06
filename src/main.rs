@@ -1,7 +1,15 @@
 use crate::Expression::*;
 use crate::Statement::*;
 use colored::Colorize;
-use std::collections::HashMap;
+use immutable_chunkmap::map::MapM;
+
+#[derive(Debug, Clone)]
+enum Type {
+    String,
+    Integer,
+    Sum,
+    Function(Box<Type>, Box<Type>)
+}
 
 #[derive(Debug, Clone)]
 enum Expression {
@@ -40,20 +48,20 @@ type Program = Vec<Statement>;
 
 #[derive(Clone)]
 struct ProgramContext {
-    variables: HashMap<String, Expression>,
+    variables: MapM<String, Expression>,
 }
 
 impl ProgramContext {
     fn new() -> ProgramContext {
         ProgramContext {
-            variables: HashMap::new(),
+            variables: MapM::new(),
         }
     }
 
     fn run_program(self, program: Program) -> ProgramContext {
-        program
-            .iter()
-            .fold(self, |context, statement| self.evaluate_statement(&statement))
+        program.iter().fold(self, |context, statement| {
+            context.evaluate_statement(&statement)
+        })
     }
 
     fn evaluate_statement(&self, statement: &Statement) -> ProgramContext {
@@ -67,7 +75,10 @@ impl ProgramContext {
                     "=",
                     format!("{:?}", value).red()
                 );
-                ProgramContext {..self.clone()}
+                ProgramContext {
+                    variables: self.variables.insert(name.clone(), value.clone()).0,
+                    ..self.clone()
+                }
             }
             DebugAst { expression } => {
                 println!(
@@ -75,7 +86,7 @@ impl ProgramContext {
                     "[debug]:".cyan(),
                     format!("{:?}", expression).blue()
                 );
-                ProgramContext {..self.clone()}
+                ProgramContext { ..self.clone() }
             }
             Debug { expression } => {
                 println!(
@@ -83,23 +94,45 @@ impl ProgramContext {
                     "[debug]:".cyan(),
                     match expression {
                         Name(name) => {
-                            let expression = self.variables[name];
+                            let expression = self.variables[name].clone();
                             let value = self.evaluate(&expression);
                             format!("{:?}", value).blue()
                         }
                         _ => todo!(),
                     }
                 );
-                ProgramContext {..self.clone()}
+                ProgramContext { ..self.clone() }
             }
             _ => todo!(),
         }
     }
+    
+    fn resolve(&self, expression: Expression) -> Expression{
+        match expression {
+            Name(name) => self.variables[&name].clone(),
+            _ => expression
+        }
+    }
 
+    // TODO: Nice error messages for variable lookup
+    // TODO: Nice error messages for application to a non-function type
+    // TODO: Type check before function application
     fn evaluate(&self, expression: &Expression) -> Value {
         match expression {
             IntegerLiteral(int) => Value::Integer(*int),
-            _ => todo!()
+            Name(name) => self.evaluate(&self.variables[name]),
+            Call { name, argument } => match &self.variables[name] {
+                Function { parameter, body } => ProgramContext {
+                    variables: self
+                        .variables
+                        .insert(parameter.clone(), self.resolve(*argument.clone()))
+                        .0,
+                    ..self.clone()
+                }
+                .evaluate(&body),
+                _ => panic!("Attempted to apply to non-function type {:?}", expression),
+            },
+            _ => todo!("{:?}", expression),
         }
     }
 }
@@ -126,8 +159,27 @@ fn main() {
         Debug {
             expression: Name("value".to_string()),
         },
+        Assignment {
+            name: "value'".to_string(),
+            value: Function {
+                parameter: "x".to_string(),
+                body: Box::new(Call {
+                    name: "x".to_string(),
+                    argument: Box::new(Name("x".to_string()))
+                })
+            }
+        },
+        Assignment {
+                name: "value''".to_string(),
+                value:Call {
+                    name: "value'".to_string(),
+                    argument: Box::new(Name("value'".to_string())),
+                }
+        },
+        Debug {
+            expression: Name("value''".to_string())
+        }
     ];
 
-    let mut context = ProgramContext::new();
-    context.run_program(program);
+    ProgramContext::new().run_program(program);
 }
