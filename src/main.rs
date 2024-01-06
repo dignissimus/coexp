@@ -1,5 +1,6 @@
 use crate::Expression::*;
 use crate::Statement::*;
+use crate::Type::Arrow;
 use colored::Colorize;
 use immutable_chunkmap::map::MapM;
 
@@ -8,7 +9,8 @@ enum Type {
     String,
     Integer,
     Sum,
-    Function(Box<Type>, Box<Type>)
+    Arrow(Box<Type>, Box<Type>),
+    Co(Box<Type>),
 }
 
 #[derive(Debug, Clone)]
@@ -16,6 +18,8 @@ enum Expression {
     Function {
         parameter: String,
         body: Box<Expression>,
+        from: Type,
+        to: Type,
     },
     Cofunction,
     IntegerLiteral(i64),
@@ -51,6 +55,14 @@ struct ProgramContext {
     variables: MapM<String, Expression>,
 }
 
+fn debug(message: String) {
+    println!("{} {}", "[debug]:".cyan(), message);
+}
+
+macro_rules! debug {
+    ($($y:expr),+) => (debug(format!($($y),+)))
+}
+
 impl ProgramContext {
     fn new() -> ProgramContext {
         ProgramContext {
@@ -67,9 +79,8 @@ impl ProgramContext {
     fn evaluate_statement(&self, statement: &Statement) -> ProgramContext {
         match statement {
             Assignment { name, value } => {
-                println!(
-                    "{} {} {} {} {}",
-                    "[debug]:".cyan(),
+                debug!(
+                    "{} {} {} {}",
                     "Assigning".cyan(),
                     name.blue(),
                     "=",
@@ -81,17 +92,12 @@ impl ProgramContext {
                 }
             }
             DebugAst { expression } => {
-                println!(
-                    "{} {}",
-                    "[debug]:".cyan(),
-                    format!("{:?}", expression).blue()
-                );
+                debug!("{}", format!("{:?}", expression).blue());
                 ProgramContext { ..self.clone() }
             }
             Debug { expression } => {
-                println!(
-                    "{} {}",
-                    "[debug]:".cyan(),
+                debug!(
+                    "{}",
                     match expression {
                         Name(name) => {
                             let expression = self.variables[name].clone();
@@ -106,11 +112,11 @@ impl ProgramContext {
             _ => todo!(),
         }
     }
-    
-    fn resolve(&self, expression: Expression) -> Expression{
+
+    fn resolve(&self, expression: Expression) -> Expression {
         match expression {
             Name(name) => self.variables[&name].clone(),
-            _ => expression
+            _ => expression,
         }
     }
 
@@ -122,7 +128,12 @@ impl ProgramContext {
             IntegerLiteral(int) => Value::Integer(*int),
             Name(name) => self.evaluate(&self.variables[name]),
             Call { name, argument } => match &self.variables[name] {
-                Function { parameter, body } => ProgramContext {
+                Function {
+                    parameter,
+                    body,
+                    from,
+                    to,
+                } => ProgramContext {
                     variables: self
                         .variables
                         .insert(parameter.clone(), self.resolve(*argument.clone()))
@@ -144,6 +155,8 @@ fn main() {
             value: Function {
                 parameter: "x".to_string(),
                 body: Box::new(Name("x".to_string())),
+                from: Type::Integer,
+                to: Type::Integer,
             },
         },
         DebugAst {
@@ -165,20 +178,22 @@ fn main() {
                 parameter: "x".to_string(),
                 body: Box::new(Call {
                     name: "x".to_string(),
-                    argument: Box::new(Name("x".to_string()))
-                })
-            }
+                    argument: Box::new(Name("x".to_string())),
+                }),
+                from: Arrow(Box::new(Type::Integer), Box::new(Type::Integer)),
+                to: Arrow(Box::new(Type::Integer), Box::new(Type::Integer)),
+            },
         },
         Assignment {
-                name: "value''".to_string(),
-                value:Call {
-                    name: "value'".to_string(),
-                    argument: Box::new(Name("value'".to_string())),
-                }
+            name: "value''".to_string(),
+            value: Call {
+                name: "value'".to_string(),
+                argument: Box::new(Name("value'".to_string())),
+            },
         },
         Debug {
-            expression: Name("value''".to_string())
-        }
+            expression: Name("value''".to_string()),
+        },
     ];
 
     ProgramContext::new().run_program(program);
