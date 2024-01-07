@@ -38,6 +38,17 @@ enum Expression {
     Inl(Box<Expression>),
     Inr(Box<Expression>),
     Unit,
+    Case {
+        value: Box<Expression>,
+        inl: CaseBind,
+        inr: CaseBind,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct CaseBind {
+    name: String,
+    expression: Box<Expression>,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +68,9 @@ struct DataCase {
 enum Value {
     Integer(i64),
     Function(Expression),
+    SpeculativeSum,
+    Inl(Box<Value>),
+    Inr(Box<Value>),
 }
 
 type Program = Vec<Statement>;
@@ -166,6 +180,33 @@ impl ProgramContext {
                 _ => panic!("Attempted to apply to non-function type {:?}", expression),
             },
             Function { .. } => Value::Function(expression.clone()),
+            Case { value, inl, inr } => {
+                let (context, expression): (ProgramContext, Expression) = match self.evaluate(value)
+                {
+                    Value::Inl(_) => (
+                        ProgramContext {
+                            variables: self
+                                .variables
+                                .insert(inl.name.clone(), expression.clone())
+                                .0,
+                            ..self.clone()
+                        },
+                        *inl.expression.clone(),
+                    ),
+                    Value::Inr(_) => (
+                        ProgramContext {
+                            variables: self
+                                .variables
+                                .insert(inr.name.clone(), expression.clone())
+                                .0,
+                            ..self.clone()
+                        },
+                        *inr.expression.clone(),
+                    ),
+                    _ => todo!(),
+                };
+                context.evaluate(&expression)
+            }
             _ => todo!("{:?}", expression),
         }
     }
