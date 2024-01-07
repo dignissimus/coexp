@@ -121,17 +121,7 @@ impl ProgramContext {
                 ProgramContext { ..self.clone() }
             }
             Debug { expression } => {
-                debug!(
-                    "{}",
-                    match expression {
-                        Name(name) => {
-                            let expression = self.variables[name].clone();
-                            let value = self.evaluate(&expression);
-                            format!("{:?}", value).blue()
-                        }
-                        _ => todo!(),
-                    }
-                );
+                debug!("{}", format!("{:?}", self.evaluate(expression)).blue());
                 ProgramContext { ..self.clone() }
             }
             _ => todo!(),
@@ -181,23 +171,23 @@ impl ProgramContext {
             },
             Function { .. } => Value::Function(expression.clone()),
             Case { value, inl, inr } => {
-                let (context, expression): (ProgramContext, Expression) = match self.evaluate(value)
+                let (context, expression): (ProgramContext, Expression) = match self.resolve(value)
                 {
-                    Value::Inl(_) => (
+                    Inl(expression) => (
                         ProgramContext {
                             variables: self
                                 .variables
-                                .insert(inl.name.clone(), expression.clone())
+                                .insert(inl.name.clone(), *expression.clone())
                                 .0,
                             ..self.clone()
                         },
                         *inl.expression.clone(),
                     ),
-                    Value::Inr(_) => (
+                    Inr(expression) => (
                         ProgramContext {
                             variables: self
                                 .variables
-                                .insert(inr.name.clone(), expression.clone())
+                                .insert(inr.name.clone(), *expression.clone())
                                 .0,
                             ..self.clone()
                         },
@@ -207,6 +197,8 @@ impl ProgramContext {
                 };
                 context.evaluate(&expression)
             }
+            Inl(expression) => Value::Inl(Box::new(self.evaluate(expression))),
+            Inr(expression) => Value::Inr(Box::new(self.evaluate(expression)))
             _ => todo!("{:?}", expression),
         }
     }
@@ -280,6 +272,19 @@ fn main() {
         },
         Debug {
             expression: Name("value''".to_string()),
+        },
+        Debug {
+            expression: Case {
+                value: Box::new(Inl(Box::new(IntegerLiteral(10)))),
+                inl: CaseBind {
+                    name: "n".to_string(),
+                    expression: Box::new(Name("n".to_string())),
+                },
+                inr: CaseBind {
+                    name: "k".to_string(),
+                    expression: Box::new(Name("k".to_string())),
+                },
+            },
         },
     ];
 
