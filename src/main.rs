@@ -24,7 +24,12 @@ enum Expression {
         from: Type,
         to: Type,
     },
-    Cofunction,
+    Cofunction {
+        parameter: String,
+        body: Box<Expression>,
+        from: Type,
+        to: Type,
+    },
     IntegerLiteral(i64),
     Application {
         name: String,
@@ -135,10 +140,21 @@ impl ProgramContext {
         }
     }
 
+    fn reduce_cofunction(&self, parameter: String, body: Expression) -> Option<Expression> {
+        // Handle co-application
+        // Check whether the bound variable is used in the cofunction body (TODO)
+        // This must be done recursively
+        match body {
+            Name(ref name) => if parameter == *name { None } else { Some(body) },
+            _ => Some(body)
+        }
+    }
+
     // TODO: Nice error messages for variable lookup
     // TODO: Nice error messages for application to a non-function type
     // TODO: Type check before function application
     // TODO: Return Result, don't panic
+    // * Line numbers for error messages
     fn evaluate(&self, expression: &Expression) -> Value {
         match expression {
             IntegerLiteral(int) => Value::Integer(*int),
@@ -193,12 +209,47 @@ impl ProgramContext {
                         },
                         *inr.expression.clone(),
                     ),
+                    Cofunction {
+                        // Perhaps consider using the same identifier for consistent messages (TODO)
+                        parameter,
+                        body,
+                        from,
+                        to,
+                    } => {
+                        if let Some(constant) = self.reduce_cofunction(parameter, *body) {
+                            return self.evaluate(&Case {
+                                value: Box::new(Inr(Box::new(constant))),
+                                inl: inl.clone(),
+                                inr: inr.clone(),
+                            });
+                        }
+
+                        // Speculatively match with the right branch
+                        let context = self.clone();
+                        let expression = Case {
+                            value: Box::new(Cofunction {
+                                parameter: inr.name.clone(),
+                                body: inr.expression.clone(),
+                                from,
+                                to,
+                            }),
+                            inl: inl.clone(),
+
+                            // We want an arbitrary symbol to construct the identity function
+                            // I want to ensure that there aren't any uses from the choice of identifier (TODO)
+                            inr: CaseBind {
+                                name: "%n".to_string(),
+                                expression: Box::new(Name("%n".to_string())),
+                            },
+                        };
+                        (context, expression)
+                    }
                     _ => todo!(),
                 };
                 context.evaluate(&expression)
             }
             Inl(expression) => Value::Inl(Box::new(self.evaluate(expression))),
-            Inr(expression) => Value::Inr(Box::new(self.evaluate(expression)))
+            Inr(expression) => Value::Inr(Box::new(self.evaluate(expression))),
             _ => todo!("{:?}", expression),
         }
     }
@@ -283,6 +334,25 @@ fn main() {
                 inr: CaseBind {
                     name: "k".to_string(),
                     expression: Box::new(Name("k".to_string())),
+                },
+            },
+        },
+        Debug {
+            expression: Case {
+                value: Box::new(Cofunction {
+                    parameter: "x".to_string(),
+                    body: Box::new(Name("x".to_string())),
+                    from: Type::Free,
+                    to: Type::Free,
+                }),
+
+                inl: CaseBind {
+                    name: "a".to_string(),
+                    expression: Box::new(IntegerLiteral(0)),
+                },
+                inr: CaseBind {
+                    name: "y".to_string(),
+                    expression: Box::new(IntegerLiteral(1)),
                 },
             },
         },
