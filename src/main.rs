@@ -93,6 +93,64 @@ macro_rules! debug {
     ($($y:expr),+) => (debug(format!($($y),+)))
 }
 
+impl Expression {
+    fn is_constant(&self, parameter: &String) -> bool {
+        // Check for correctness and completeness (TODO)
+        // Check all code for name shadowing (TODO)
+        match self {
+            Name(ref name) => *name != *parameter,
+            Function { ref body, .. } => body.is_constant(parameter),
+            Cofunction { ref body, .. } => body.is_constant(parameter),
+            Application {
+                ref name,
+                ref argument,
+                ..
+            } => argument.is_constant(parameter) && *name != *parameter,
+            Coapplication {
+                ref name,
+                ref argument,
+                ..
+            } => argument.is_constant(parameter) && *name != *parameter,
+            Inl(expression) => expression.is_constant(parameter),
+            Inr(expression) => expression.is_constant(parameter),
+            Case { value, inl, inr } => {
+                value.is_constant(parameter)
+                    && inl.expression.is_constant(parameter)
+                    && inr.expression.is_constant(parameter)
+            }
+            _ => true,
+        }
+    }
+
+    fn contains_coapplication(&self, parameter: &String) -> bool {
+        // Clarify semantics when the body contains coapplication as well as
+        //   other constructs (TODO)
+        match self {
+            Name(_) => false,
+            Function { ref body, .. } => body.contains_coapplication(parameter),
+            Cofunction { ref body, .. } => body.contains_coapplication(parameter),
+            Application {
+                ref name,
+                ref argument,
+                ..
+            } => argument.contains_coapplication(parameter),
+            Coapplication {
+                ref name,
+                ref argument,
+                ..
+            } => argument.contains_coapplication(parameter) || *name == *parameter,
+            Inl(expression) => expression.contains_coapplication(parameter),
+            Inr(expression) => expression.contains_coapplication(parameter),
+            Case { value, inl, inr } => {
+                value.contains_coapplication(parameter)
+                    || inl.expression.contains_coapplication(parameter)
+                    || inr.expression.contains_coapplication(parameter)
+            }
+            _ => true,
+        }
+    }
+}
+
 impl ProgramContext {
     fn new() -> ProgramContext {
         ProgramContext {
@@ -102,7 +160,7 @@ impl ProgramContext {
 
     fn run_program(self, program: Program) -> ProgramContext {
         program.iter().fold(self, |context, statement| {
-            context.evaluate_statement(&statement)
+            context.evaluate_statement(statement)
         })
     }
 
@@ -118,7 +176,6 @@ impl ProgramContext {
                 );
                 ProgramContext {
                     variables: self.variables.insert(name.clone(), value.clone()).0,
-                    ..self.clone()
                 }
             }
             DebugAst { expression } => {
@@ -137,16 +194,6 @@ impl ProgramContext {
         match expression {
             Name(name) => self.variables[name].clone(),
             _ => expression.clone(),
-        }
-    }
-
-    fn reduce_cofunction(&self, parameter: String, body: Expression) -> Option<Expression> {
-        // Handle co-application
-        // Check whether the bound variable is used in the cofunction body (TODO)
-        // This must be done recursively
-        match body {
-            Name(ref name) => if parameter == *name { None } else { Some(body) },
-            _ => Some(body)
         }
     }
 
@@ -179,9 +226,8 @@ impl ProgramContext {
                             .variables
                             .insert(parameter.clone(), self.resolve(argument))
                             .0,
-                        ..self.clone()
                     };
-                    context.evaluate(&body)
+                    context.evaluate(body)
                 }
                 _ => panic!("Attempted to apply to non-function type {:?}", expression),
             },
@@ -195,7 +241,6 @@ impl ProgramContext {
                                 .variables
                                 .insert(inl.name.clone(), *expression.clone())
                                 .0,
-                            ..self.clone()
                         },
                         *inl.expression.clone(),
                     ),
@@ -205,7 +250,6 @@ impl ProgramContext {
                                 .variables
                                 .insert(inr.name.clone(), *expression.clone())
                                 .0,
-                            ..self.clone()
                         },
                         *inr.expression.clone(),
                     ),
@@ -216,9 +260,17 @@ impl ProgramContext {
                         from,
                         to,
                     } => {
-                        if let Some(constant) = self.reduce_cofunction(parameter, *body) {
+                        if body.is_constant(&parameter) {
                             return self.evaluate(&Case {
-                                value: Box::new(Inr(Box::new(constant))),
+                                value: Box::new(Inr(body)),
+                                inl: inl.clone(),
+                                inr: inr.clone(),
+                            });
+                        }
+
+                        if body.contains_coapplication(&parameter) {
+                            return self.evaluate(&Case {
+                                value: Box::new(Inl(body)),
                                 inl: inl.clone(),
                                 inr: inr.clone(),
                             });
@@ -353,6 +405,28 @@ fn main() {
                 inr: CaseBind {
                     name: "y".to_string(),
                     expression: Box::new(IntegerLiteral(1)),
+                },
+            },
+        },
+        Debug {
+            expression: Case {
+                value: Box::new(Cofunction {
+                    parameter: "x".to_string(),
+                    body: Box::new(Name("x".to_string())),
+                    from: Type::Free,
+                    to: Type::Free,
+                }),
+
+                inl: CaseBind {
+                    name: "a".to_string(),
+                    expression: Box::new(IntegerLiteral(0)),
+                },
+                inr: CaseBind {
+                    name: "k".to_string(),
+                    expression: Box::new(Coapplication {
+                        name: "k".to_string(),
+                        argument: Box::new(Inl(Box::new(IntegerLiteral(1)))),
+                    }),
                 },
             },
         },
