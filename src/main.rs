@@ -122,31 +122,36 @@ impl Expression {
         }
     }
 
-    fn contains_coapplication(&self, parameter: &String) -> bool {
+    fn find_coapplication(&self, parameter: &String) -> Option<&Expression> {
         // Clarify semantics when the body contains coapplication as well as
         //   other constructs (TODO)
         match self {
-            Name(_) => false,
-            Function { ref body, .. } => body.contains_coapplication(parameter),
-            Cofunction { ref body, .. } => body.contains_coapplication(parameter),
+            Name(_) => None,
+            Function { ref body, .. } => body.find_coapplication(parameter),
+            Cofunction { ref body, .. } => body.find_coapplication(parameter),
             Application {
                 ref name,
                 ref argument,
                 ..
-            } => argument.contains_coapplication(parameter),
+            } => argument.find_coapplication(parameter),
             Coapplication {
                 ref name,
                 ref argument,
                 ..
-            } => argument.contains_coapplication(parameter) || *name == *parameter,
-            Inl(expression) => expression.contains_coapplication(parameter),
-            Inr(expression) => expression.contains_coapplication(parameter),
-            Case { value, inl, inr } => {
-                value.contains_coapplication(parameter)
-                    || inl.expression.contains_coapplication(parameter)
-                    || inr.expression.contains_coapplication(parameter)
+            } => {
+                if *name == *parameter {
+                    Some(self)
+                } else {
+                    None
+                }
             }
-            _ => true,
+            Inl(expression) => expression.find_coapplication(parameter),
+            Inr(expression) => expression.find_coapplication(parameter),
+            Case { value, inl, inr } => value
+                .find_coapplication(parameter)
+                .or(inl.expression.find_coapplication(parameter))
+                .or(inr.expression.find_coapplication(parameter)),
+            _ => None,
         }
     }
 }
@@ -268,9 +273,11 @@ impl ProgramContext {
                             });
                         }
 
-                        if body.contains_coapplication(&parameter) {
+                        if let Some(Coapplication { argument, .. }) =
+                            body.find_coapplication(&parameter)
+                        {
                             return self.evaluate(&Case {
-                                value: Box::new(Inl(body)),
+                                value: Box::new(Inl(argument.clone())),
                                 inl: inl.clone(),
                                 inr: inr.clone(),
                             });
@@ -426,6 +433,28 @@ fn main() {
                     expression: Box::new(Coapplication {
                         name: "k".to_string(),
                         argument: Box::new(Inl(Box::new(IntegerLiteral(1)))),
+                    }),
+                },
+            },
+        },
+        Debug {
+            expression: Case {
+                value: Box::new(Cofunction {
+                    parameter: "x".to_string(),
+                    body: Box::new(Name("x".to_string())),
+                    from: Type::Free,
+                    to: Type::Free,
+                }),
+
+                inl: CaseBind {
+                    name: "a".to_string(),
+                    expression: Box::new(IntegerLiteral(5)),
+                },
+                inr: CaseBind {
+                    name: "k".to_string(),
+                    expression: Box::new(Coapplication {
+                        name: "k".to_string(),
+                        argument: Box::new(Inl(Box::new(Name("k".to_string())))),
                     }),
                 },
             },
