@@ -102,9 +102,7 @@ impl Expression {
             Function { ref body, .. } => body.is_constant(parameter),
             Cofunction { ref body, .. } => body.is_constant(parameter),
             Application {
-                ref name,
-                ref argument,
-                ..
+                ref name, argument, ..
             } => argument.is_constant(parameter) && *name != *parameter,
             Coapplication {
                 ref name,
@@ -122,23 +120,15 @@ impl Expression {
         }
     }
 
-    fn find_coapplication(&self, parameter: &String) -> Option<&Expression> {
+    fn find_coapplication(self, parameter: &String) -> Option<Expression> {
         // Clarify semantics when the body contains coapplication as well as
         //   other constructs (TODO)
         match self {
             Name(_) => None,
-            Function { ref body, .. } => body.find_coapplication(parameter),
-            Cofunction { ref body, .. } => body.find_coapplication(parameter),
-            Application {
-                ref name,
-                ref argument,
-                ..
-            } => argument.find_coapplication(parameter),
-            Coapplication {
-                ref name,
-                ref argument,
-                ..
-            } => {
+            Function { body, .. } => body.find_coapplication(parameter),
+            Cofunction { body, .. } => body.find_coapplication(parameter),
+            Application { argument, .. } => argument.find_coapplication(parameter),
+            Coapplication { ref name, .. } => {
                 if *name == *parameter {
                     Some(self)
                 } else {
@@ -277,7 +267,7 @@ impl ProgramContext {
                             body.find_coapplication(&parameter)
                         {
                             return self.evaluate(&Case {
-                                value: Box::new(Inl(argument.clone())),
+                                value: Box::new(Inl(argument)),
                                 inl: inl.clone(),
                                 inr: inr.clone(),
                             });
@@ -326,6 +316,41 @@ impl ProgramContext {
             ),
         }
     }
+}
+
+struct ParseError {}
+type ParseResult<T> = Result<(T, usize), ParseError>;
+
+fn any<T>(
+    parsers: Vec<&dyn Fn(&String, usize) -> ParseResult<T>>,
+    source: &String,
+    index: usize,
+) -> ParseResult<T> {
+    // TODO: Error message for ParseError {} which occurs when parsers is empty
+    parsers
+        .iter()
+        .map(|parser| parser(source, index))
+        .reduce(|left, right| left.or(right))
+        .unwrap_or(Err(ParseError {}))
+}
+
+fn parse_assignment(_source: &String, _index: usize) -> ParseResult<Statement> {
+    Err(ParseError {})
+}
+
+fn parse_debug(_source: &String, _index: usize) -> ParseResult<Statement> {
+    Err(ParseError {})
+}
+
+fn parse_program(source: &String) -> ParseResult<Program> {
+    let mut index = 0;
+    let mut program: Program = Vec::new();
+    while index < source.len() {
+        let (statement, new_index) = any(vec![&parse_assignment, &parse_debug], source, index)?;
+        program.push(statement);
+        index = new_index;
+    }
+    Ok((program, index))
 }
 
 fn main() {
