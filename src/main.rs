@@ -330,11 +330,25 @@ fn any<T>(
     parsers
         .iter()
         .map(|parser| parser(source, index))
-        .reduce(|left, right| left.or(right))
+        .reduce(ParseResult::or)
         .unwrap_or(Err(ParseError {}))
 }
 
-fn parse_assignment(_source: &String, _index: usize) -> ParseResult<Statement> {
+fn parse_name(source: &String, index: usize) -> ParseResult<Statement> {
+    Err(ParseError {})
+}
+fn parse_value(source: &String, index: usize) -> ParseResult<Statement> {
+    Err(ParseError {})
+}
+
+fn whitespace(source: &String, index: usize) -> ParseResult<Statement> {
+    Err(ParseError {})
+}
+
+fn parse_assignment(source: &String, index: usize) -> ParseResult<Statement> {
+    let (name, index) = parse_name(source, index)?;
+    let (_, index) = whitespace(source, index)?;
+    let (value, index) = parse_value(source, index)?;
     Err(ParseError {})
 }
 
