@@ -318,49 +318,132 @@ impl ProgramContext {
     }
 }
 
+#[derive(Debug)]
 struct ParseError {}
 type ParseResult<T> = Result<(T, usize), ParseError>;
+type Parser<T> = fn(&String, usize) -> ParseResult<T>;
 
-fn any<T>(
-    parsers: Vec<&dyn Fn(&String, usize) -> ParseResult<T>>,
-    source: &String,
-    index: usize,
-) -> ParseResult<T> {
-    // TODO: Error message for ParseError {} which occurs when parsers is empty
-    parsers
-        .iter()
-        .map(|parser| parser(source, index))
-        .reduce(ParseResult::or)
-        .unwrap_or(Err(ParseError {}))
-}
-
-fn parse_name(source: &String, index: usize) -> ParseResult<Statement> {
-    Err(ParseError {})
-}
-fn parse_value(source: &String, index: usize) -> ParseResult<Statement> {
-    Err(ParseError {})
+macro_rules! exact {
+    ($character:expr) => {
+        &|source: &String, index: usize| {
+            if let Some($character) = source.chars().nth(index) {
+                Ok(($character, index + 1))
+            } else {
+                Err(ParseError {})
+            }
+        }
+    };
 }
 
-fn whitespace(source: &String, index: usize) -> ParseResult<Statement> {
-    Err(ParseError {})
+macro_rules! any {
+    () => {
+        |_source, _index| Err(ParseError {})
+    };
+    ($left:expr $(, $right:expr)*) => {
+        |source: &String, index: usize| {
+            let result = $left(source, index);
+            match result {
+                Ok(_) => result,
+                Err(_) => any!($($right),*)(source, index),
+            }
+        }
+    };
 }
+
+macro_rules! chars {
+    () => {};
+    ($e:expr) => {
+        exact!($e)
+    };
+    ($left:expr $(, $right:expr)+) => {
+        any!(exact!($left), $(exact!($right)),+)
+    };
+}
+
+macro_rules! map {
+    ($p:expr $(, $f:expr)*) => { |source, index| $p(source, index).map(|(x, index)| (apply!(x $(, $f)*), index)) };
+}
+
+macro_rules! apply {
+    ($x:expr) => { $x };
+    ($x:expr, $f:expr $(, $g:expr)*) => { apply!($f($x) $(, $g)*) };
+}
+
+macro_rules! maybe {
+    ($p:expr) => {
+        |source, index| {
+            $p(source, index)
+                .map(|(item, index)| (Some(item), index))
+                .unwrap_or((None, index))
+        }
+    };
+}
+
+macro_rules! many {
+    ($p:expr) => {
+        |source, index| {
+            let mut result = Vec::new();
+            let mut last = $p(source, index);
+            let mut last_index = index;
+            while let Ok((item, index)) = last {
+                last_index = index;
+                result.push(item);
+                last = $p(source, index);
+            }
+            Ok((result, last_index))
+        }
+    };
+}
+
+macro_rules! many1 {
+    ($p:expr) => {
+        |source, index| {
+            let result = many!($p)(source, index)?;
+            if result.0.len() == 0 {
+                Err(ParseError {})
+            } else {
+                Ok(result)
+            }
+        }
+    };
+}
+
+const alpha: Parser<char> = chars!(
+    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's',
+    't', 'u', 'v', 'w', 'x', 'y', 'z'
+);
+const numeral: Parser<char> = chars!('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
+
+const WHITESPACE: Parser<Vec<char>> = many!(chars!(' ', '\n'));
+const parse_name: Parser<String> = map!(many1!(alpha), |result: Vec<char>| result.iter().collect());
+// TODO: unwrap
+const parse_integer: Parser<Expression> = map!(
+    many1!(numeral),
+    |result: Vec<char>| IntegerLiteral(result.iter().collect::<String>().parse().unwrap())
+);
+const parse_expression: Parser<Expression> = any!(parse_integer);
 
 fn parse_assignment(source: &String, index: usize) -> ParseResult<Statement> {
     let (name, index) = parse_name(source, index)?;
-    let (_, index) = whitespace(source, index)?;
-    let (value, index) = parse_value(source, index)?;
-    Err(ParseError {})
+    let (_, index) = WHITESPACE(source, index)?;
+    let (_, index) = exact!('=')(source, index)?;
+    let (_, index) = WHITESPACE(source, index)?;
+    let (value, index) = parse_expression(source, index)?;
+    Ok((Assignment { name, value }, index))
 }
-
 fn parse_debug(_source: &String, _index: usize) -> ParseResult<Statement> {
-    Err(ParseError {})
+    todo!()
 }
 
 fn parse_program(source: &String) -> ParseResult<Program> {
     let mut index = 0;
     let mut program: Program = Vec::new();
+
+    let _parsers: [Parser<Statement>; 2] = [parse_assignment, parse_debug];
+    let parse_statement = any!(parse_assignment, parse_debug);
+
     while index < source.len() {
-        let (statement, new_index) = any(vec![&parse_assignment, &parse_debug], source, index)?;
+        let (statement, new_index) = parse_statement(source, index)?;
         program.push(statement);
         index = new_index;
     }
@@ -501,4 +584,6 @@ fn main() {
     ];
 
     ProgramContext::new().run_program(program);
+    debug!("{:?}", parse_name(&"hello".to_string(), 0));
+    debug!("{:?}", parse_program(&"hello = 1".to_string()));
 }
