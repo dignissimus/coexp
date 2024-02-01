@@ -78,7 +78,7 @@ pub enum Value {
     Inr(Box<Value>),
 }
 
-type Program = Vec<Statement>;
+pub type Program = Vec<Statement>;
 
 #[derive(Clone)]
 pub struct ProgramContext {
@@ -320,13 +320,13 @@ impl ProgramContext {
 
 #[derive(Debug)]
 pub struct ParseError {
-    message: String,
+    pub message: String,
 }
 macro_rules! error {
     ($($x:expr),*) => { ParseError { message: format!($($x),*).to_string() }};
 }
 
-type ParseResult<T> = Result<(T, usize), ParseError>;
+pub type ParseResult<T> = Result<(T, usize), ParseError>;
 type Parser<T> = fn(&String, usize) -> ParseResult<T>;
 
 macro_rules! exact {
@@ -552,7 +552,16 @@ fn parse_coapplication(source: &String, index: usize) -> ParseResult<Expression>
     let argument = Box::new(value);
     Ok((Coapplication { name, argument }, index))
 }
-const parse_expression: Parser<Expression> = any!(
+
+fn parse_bracketed_expression(source: &String, index: usize) -> ParseResult<Expression> {
+    let (_, index) = sequence!(exact!('('), WHITESPACE)(source, index)?;
+    let (expression, index) = parse_expression(source, index)?;
+    let (_, index) = sequence!(WHITESPACE, exact!(')'))(source, index)?;
+    Ok((expression, index))
+}
+
+pub const parse_expression: Parser<Expression> = any!(
+    parse_bracketed_expression,
     parse_inl,
     parse_inr,
     parse_case,

@@ -1,5 +1,9 @@
+use coexp::parse_expression;
 use coexp::parse_program;
 use coexp::Expression::*;
+use coexp::ParseError;
+use coexp::ParseResult;
+use coexp::Program;
 use coexp::ProgramContext;
 use coexp::Statement::*;
 use coexp::Type::Arrow;
@@ -26,7 +30,25 @@ fn repl() {
         io::stdin()
             .read_line(&mut line)
             .expect("Unable to read from stdin");
-        match parse_program(&line) {
+        match parse_program(&line).or_else(|_| {
+            let (expression, index) = parse_expression(&line, 0)?;
+            (if index == line.len()  - 1 {
+                Ok((
+                    vec![
+                        Assignment {
+                            name: "_result".to_string(),
+                            value: expression,
+                        },
+                        Debug {
+                            expression: Name("_result".to_string()),
+                        },
+                    ],
+                    index,
+                ))
+            } else {
+                Err(ParseError {message: "Unable to parse code".to_string()})
+            }) as ParseResult<Program>
+        }) {
             Ok((program, _)) => context = context.run_program(program),
             Err(err) => {
                 println!("Error while parsing input: {:?}", err)
