@@ -9,6 +9,8 @@ use coexp::Statement::*;
 use coexp::Type::Arrow;
 use colored::Colorize;
 use immutable_chunkmap::map::MapM;
+use rustyline::error::ReadlineError;
+use rustyline::{DefaultEditor, Result};
 use std::env;
 use std::fs;
 use std::io;
@@ -22,17 +24,26 @@ fn main() {
 }
 
 fn repl() {
+    let mut rl = DefaultEditor::new().unwrap();
     let mut line = String::new();
     let mut context = ProgramContext::new();
     loop {
+        match rl.readline("coexp> ") {
+            Ok(data) => {
+                let _ = rl.add_history_entry(data.as_str());
+                line = data;
+            }
+            Err(ReadlineError::Interrupted) => break,
+            Err(ReadlineError::Eof) => break,
+            Err(err) => {
+                println!("Error: {:?}", err);
+                break;
+            }
+        }
         print!("coexp> ");
-        io::stdout().flush().expect("Unable to flush stdout");
-        io::stdin()
-            .read_line(&mut line)
-            .expect("Unable to read from stdin");
         match parse_program(&line).or_else(|_| {
             let (expression, index) = parse_expression(&line, 0)?;
-            (if index == line.len()  - 1 {
+            (if index == line.len() - 1 {
                 Ok((
                     vec![
                         Assignment {
@@ -46,7 +57,9 @@ fn repl() {
                     index,
                 ))
             } else {
-                Err(ParseError {message: "Unable to parse code".to_string()})
+                Err(ParseError {
+                    message: "Unable to parse code".to_string(),
+                })
             }) as ParseResult<Program>
         }) {
             Ok((program, _)) => context = context.run_program(program),
