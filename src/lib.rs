@@ -573,8 +573,11 @@ fn parse_assignment(source: &String, index: usize) -> ParseResult<Statement> {
     let (value, index) = parse_expression(source, index)?;
     Ok((Assignment { name, value }, index))
 }
-fn parse_debug(_source: &String, _index: usize) -> ParseResult<Statement> {
-    Err(error!("todo, debug"))
+fn parse_debug(source: &String, index: usize) -> ParseResult<Statement> {
+    let (_, index) = sequence!(exact!('d'), exact!('e'), exact!('b'), exact!('u'), exact!('g'), exact!('!'), WHITESPACE, exact!('('), WHITESPACE)(source, index)?;
+    let (expression, index) = parse_expression(source, index)?;
+    let (_, index) = exact!(')')(source, index)?;
+    Ok((Debug { expression }, index))
 }
 
 pub fn parse_program(source: &String) -> ParseResult<Program> {

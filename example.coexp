@@ -17,3 +17,7 @@ two = case inl 2 {
 }
 left = inl 1
 right = inr 1
+debug!(case cofn x => x {
+    | inl x => 0
+    | inr f => f @ 1
+})

@@ -1,0 +1,48 @@
+fun ex1 (f : int -> string) (g : int + string) : int -> int + string =
+    fn (x : int) =>
+        cofn (k : co int) =>
+            if x = 0 then g @ k else f x
+
+ex1 =
+    fn (f : int -> string) =>
+        fn (g : int + string) =>
+            fn (x : int) =>
+                fn (k : co int) => if x = 0 then g @ k else f x
+
+assert_eq!(ex1 Int.toString (inr "0") 0, inl 1)
+assert_eq!(ex1 Int.toString (inl 1) 1, inr "1")
+
+fun ex1 (f : int -> string) (g : int + string) : int -> int + string
+    = fn (x : int) => if x = 0 then g else inr (f x)
+
+fun mult (l : list int) : int =
+    let fun loop [] = 1
+        | loop (h :: t) = h * loop t
+    in loop l
+    end
+
+fun mult' (l : list int) : int + int =
+    let fun loop [] = inr 1
+        | loop (0 :: _) = inl 0
+        | loop (h :: t) =
+            trace ("at " ^ Int.toString h)
+            (mapRight (fn x => h * x) (loop t))
+
+fun mult'' (l : list int) : int + int =
+    cofn (k : co int) =>
+        let fun loop [] = inr 1
+            | loop (0 :: _) = (inl 0) @ k
+            | loop (h :: t) =
+                trace ("at " ^ Int.toString h)
+                (mapRight (fn x => h * x) (loop t))
+
+
+assert_eq!(mult [1, 2, 0, 3, 4], 0)
+assert_eq!(mult' [1, 2, 0, 3, 4], inl 0)
+assert_eq!(mult'' [1, 2, 0, 3, 4], inl 0)
+
+(* match against this *)
+cofn constant (k : int) => k
+
+(* match against this *)
+cofn identity (k : co int) => k
