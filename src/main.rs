@@ -408,6 +408,16 @@ macro_rules! many1 {
     };
 }
 
+macro_rules! sequence {
+    ($l:expr, $r:expr) => {
+        |source, index| {
+            let (a, index) = $l(source, index)?;
+            let (b, index) = $r(source, index)?;
+            Ok(((a, b), index)) as ParseResult<_>
+        }
+    };
+}
+
 const alpha: Parser<char> = chars!(
     'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's',
     't', 'u', 'v', 'w', 'x', 'y', 'z'
@@ -421,7 +431,33 @@ const parse_integer: Parser<Expression> = map!(
     many1!(numeral),
     |result: Vec<char>| IntegerLiteral(result.iter().collect::<String>().parse().unwrap())
 );
-const parse_expression: Parser<Expression> = any!(parse_integer);
+
+const parse_unit: Parser<Expression> = map!(sequence!(exact!('('), exact!(')')), |_| Unit);
+
+fn parse_application(source: &String, index: usize) -> ParseResult<Expression> {
+    let (name, index) = parse_name(source, index)?;
+    let (_, index) = WHITESPACE(source, index)?;
+    let (value, index) = parse_expression(source, index)?;
+    let argument = Box::new(value);
+    Ok((Application { name, argument }, index))
+}
+
+fn parse_coapplication(source: &String, index: usize) -> ParseResult<Expression> {
+    let (name, index) = parse_name(source, index)?;
+    let (_, index) = WHITESPACE(source, index)?;
+    let (_, index) = exact!('@')(source, index)?;
+    let (_, index) = WHITESPACE(source, index)?;
+    let (value, index) = parse_expression(source, index)?;
+    let argument = Box::new(value);
+    Ok((Coapplication { name, argument }, index))
+}
+const parse_expression: Parser<Expression> = any!(
+    parse_integer,
+    parse_unit,
+    parse_coapplication,
+    parse_application,
+    map!(parse_name, Name)
+);
 
 fn parse_assignment(source: &String, index: usize) -> ParseResult<Statement> {
     let (name, index) = parse_name(source, index)?;
@@ -595,4 +631,8 @@ fn main() {
     ProgramContext::new().run_program(program);
     debug!("{:?}", parse_name(&"hello".to_string(), 0));
     debug!("{:?}", parse_program(&"hello = 1".to_string()));
+    debug!("{:?}", parse_program(&"variable = other".to_string()));
+    debug!("{:?}", parse_program(&"value = f 1".to_string()));
+    debug!("{:?}", parse_program(&"value = f @ 1".to_string()));
+    debug!("{:?}", parse_program(&"unit = ()".to_string()));
 }
