@@ -51,7 +51,7 @@ pub enum Expression {
 }
 
 #[derive(Debug, Clone)]
-struct CaseBind {
+pub struct CaseBind {
     name: String,
     expression: Box<Expression>,
 }
@@ -65,7 +65,7 @@ pub enum Statement {
 }
 
 #[derive(Debug, Clone)]
-struct DataCase {
+pub struct DataCase {
     name: String,
 }
 
@@ -81,7 +81,7 @@ pub enum Value {
 type Program = Vec<Statement>;
 
 #[derive(Clone)]
-struct ProgramContext {
+pub struct ProgramContext {
     variables: MapM<String, Expression>,
 }
 
@@ -147,13 +147,13 @@ impl Expression {
 }
 
 impl ProgramContext {
-    fn new() -> ProgramContext {
+    pub fn new() -> ProgramContext {
         ProgramContext {
             variables: MapM::new(),
         }
     }
 
-    fn run_program(self, program: Program) -> ProgramContext {
+    pub fn run_program(self, program: Program) -> ProgramContext {
         program.iter().fold(self, |context, statement| {
             context.evaluate_statement(statement)
         })
@@ -319,7 +319,13 @@ impl ProgramContext {
 }
 
 #[derive(Debug)]
-struct ParseError {}
+pub struct ParseError {
+    message: String,
+}
+macro_rules! error {
+    ($($x:expr),*) => { ParseError { message: format!($($x),*).to_string() }};
+}
+
 type ParseResult<T> = Result<(T, usize), ParseError>;
 type Parser<T> = fn(&String, usize) -> ParseResult<T>;
 
@@ -329,7 +335,7 @@ macro_rules! exact {
             if let Some($character) = source.chars().nth(index) {
                 Ok(($character, index + 1))
             } else {
-                Err(ParseError {})
+                Err(error!("Expected to see character {:?}", $character))
             }
         }
     };
@@ -337,7 +343,7 @@ macro_rules! exact {
 
 macro_rules! any {
     () => {
-        |_source, _index| Err(ParseError {})
+        |_source, _index| Err(error!("todo, any"))
     };
     ($left:expr $(, $right:expr)*) => {
         |source: &String, index: usize| {
@@ -400,7 +406,7 @@ macro_rules! many1 {
         |source, index| {
             let result = many!($p)(source, index)?;
             if result.0.len() == 0 {
-                Err(ParseError {})
+                Err(error!("todo, many1"))
             } else {
                 Ok(result)
             }
@@ -531,7 +537,7 @@ fn parse_cofunction(source: &String, index: usize) -> ParseResult<Expression> {
 
 fn parse_application(source: &String, index: usize) -> ParseResult<Expression> {
     let (name, index) = parse_name(source, index)?;
-    let (_, index) = WHITESPACE(source, index)?;
+    let (_, index) = many!(exact!(' '))(source, index)?;
     let (value, index) = parse_expression(source, index)?;
     let argument = Box::new(value);
     Ok((Application { name, argument }, index))
@@ -568,10 +574,10 @@ fn parse_assignment(source: &String, index: usize) -> ParseResult<Statement> {
     Ok((Assignment { name, value }, index))
 }
 fn parse_debug(_source: &String, _index: usize) -> ParseResult<Statement> {
-    Err(ParseError {})
+    Err(error!("todo, debug"))
 }
 
-fn parse_program(source: &String) -> ParseResult<Program> {
+pub fn parse_program(source: &String) -> ParseResult<Program> {
     let mut start = 0;
     let mut program: Program = Vec::new();
 
@@ -591,7 +597,7 @@ fn parse_program(source: &String) -> ParseResult<Program> {
     if start == source.len() {
         Ok((program, start))
     } else {
-        Err(ParseError {})
+        Err(error!("todo, more {}, {:?}", &source[start..], program))
     }
 }
 
