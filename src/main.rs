@@ -416,6 +416,9 @@ macro_rules! sequence {
             Ok(((a, b), index)) as ParseResult<_>
         }
     };
+    ($l:expr, $r:expr $(, $rest:expr)+) => {
+        sequence!($l, sequence!($r $(, $rest)+))
+    };
 }
 
 const alpha: Parser<char> = chars!(
@@ -433,6 +436,98 @@ const parse_integer: Parser<Expression> = map!(
 );
 
 const parse_unit: Parser<Expression> = map!(sequence!(exact!('('), exact!(')')), |_| Unit);
+
+fn parse_case(source: &String, index: usize) -> ParseResult<Expression> {
+    let (_, index) = sequence!(
+        exact!('c'),
+        exact!('a'),
+        exact!('s'),
+        exact!('e'),
+        WHITESPACE
+    )(source, index)?;
+    let (value, index) = map!(parse_expression, Box::new)(source, index)?;
+    let (_, index) = sequence!(WHITESPACE, exact!('{'), WHITESPACE)(source, index)?;
+    let (_, index) = sequence!(
+        WHITESPACE,
+        exact!('|'),
+        WHITESPACE,
+        exact!('i'),
+        exact!('n'),
+        exact!('l'),
+        WHITESPACE
+    )(source, index)?;
+    let (name, index) = parse_name(source, index)?;
+    let (_, index) = sequence!(WHITESPACE, exact!('='), exact!('>'), WHITESPACE)(source, index)?;
+    let (expression, index) = map!(parse_expression, Box::new)(source, index)?;
+    let inl = CaseBind { name, expression };
+    let (_, index) = sequence!(
+        WHITESPACE,
+        exact!('|'),
+        WHITESPACE,
+        exact!('i'),
+        exact!('n'),
+        exact!('r'),
+        WHITESPACE
+    )(source, index)?;
+    let (name, index) = parse_name(source, index)?;
+    let (_, index) = sequence!(WHITESPACE, exact!('='), exact!('>'), WHITESPACE)(source, index)?;
+    let (expression, index) = map!(parse_expression, Box::new)(source, index)?;
+    let (_, index) = sequence!(WHITESPACE, exact!('}'))(source, index)?;
+    let inr = CaseBind { name, expression };
+    Ok((Case { value, inl, inr }, index))
+}
+
+fn parse_inl(source: &String, index: usize) -> ParseResult<Expression> {
+    let (_, index) = sequence!(exact!('i'), exact!('n'), exact!('l'), WHITESPACE)(source, index)?;
+    let (inl, index) = map!(parse_expression, Box::new, Inl)(source, index)?;
+    Ok((inl, index))
+}
+
+fn parse_inr(source: &String, index: usize) -> ParseResult<Expression> {
+    let (_, index) = sequence!(exact!('i'), exact!('n'), exact!('r'), WHITESPACE)(source, index)?;
+    let (inr, index) = map!(parse_expression, Box::new, Inr)(source, index)?;
+    Ok((inr, index))
+}
+
+fn parse_function(source: &String, index: usize) -> ParseResult<Expression> {
+    let (_, index) = sequence!(exact!('f'), exact!('n'), WHITESPACE)(source, index)?;
+    let (parameter, index) = parse_name(source, index)?;
+    let (_, index) = sequence!(WHITESPACE, exact!('='), exact!('>'), WHITESPACE)(source, index)?;
+    let (body, index) = parse_expression(source, index)?;
+    let body = Box::new(body);
+    Ok((
+        Function {
+            parameter,
+            body,
+            from: Type::Free,
+            to: Type::Free,
+        },
+        index,
+    ))
+}
+
+fn parse_cofunction(source: &String, index: usize) -> ParseResult<Expression> {
+    let (_, index) = sequence!(
+        exact!('c'),
+        exact!('o'),
+        exact!('f'),
+        exact!('n'),
+        WHITESPACE
+    )(source, index)?;
+    let (parameter, index) = parse_name(source, index)?;
+    let (_, index) = sequence!(WHITESPACE, exact!('='), exact!('>'), WHITESPACE)(source, index)?;
+    let (body, index) = parse_expression(source, index)?;
+    let body = Box::new(body);
+    Ok((
+        Cofunction {
+            parameter,
+            body,
+            from: Type::Free,
+            to: Type::Free,
+        },
+        index,
+    ))
+}
 
 fn parse_application(source: &String, index: usize) -> ParseResult<Expression> {
     let (name, index) = parse_name(source, index)?;
@@ -452,6 +547,11 @@ fn parse_coapplication(source: &String, index: usize) -> ParseResult<Expression>
     Ok((Coapplication { name, argument }, index))
 }
 const parse_expression: Parser<Expression> = any!(
+    parse_inl,
+    parse_inr,
+    parse_case,
+    parse_cofunction,
+    parse_function,
     parse_integer,
     parse_unit,
     parse_coapplication,
@@ -635,4 +735,38 @@ fn main() {
     debug!("{:?}", parse_program(&"value = f 1".to_string()));
     debug!("{:?}", parse_program(&"value = f @ 1".to_string()));
     debug!("{:?}", parse_program(&"unit = ()".to_string()));
+    debug!(
+        "{:?}",
+        parse_program(&"function = fn parameter => ()".to_string())
+    );
+    debug!(
+        "{:?}",
+        parse_program(&"cofunction = cofn parameter => ()".to_string())
+    );
+    debug!("{:?}", parse_program(&"left = inl 1".to_string()));
+    debug!("{:?}", parse_program(&"right = inr 1".to_string()));
+    debug!(
+        "{:?}",
+        parse_program(
+            &"value = case inl 1 {
+            | inl x => x
+            | inr x => x
+        }"
+            .to_string()
+        )
+    );
+    debug!(
+        "{:?}",
+        parse_program(&"cofunction = cofn parameter => ()".to_string())
+    );
+    debug!(
+        "{:?}",
+        parse_program(
+            &"cofunction = case cofn x => x {
+            | inl x => 0
+            | inr y => 1
+        }"
+            .to_string()
+        )
+    );
 }
