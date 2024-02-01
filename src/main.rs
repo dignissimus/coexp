@@ -432,22 +432,31 @@ fn parse_assignment(source: &String, index: usize) -> ParseResult<Statement> {
     Ok((Assignment { name, value }, index))
 }
 fn parse_debug(_source: &String, _index: usize) -> ParseResult<Statement> {
-    todo!()
+    Err(ParseError {})
 }
 
 fn parse_program(source: &String) -> ParseResult<Program> {
-    let mut index = 0;
+    let mut start = 0;
     let mut program: Program = Vec::new();
 
     let _parsers: [Parser<Statement>; 2] = [parse_assignment, parse_debug];
     let parse_statement = any!(parse_assignment, parse_debug);
 
-    while index < source.len() {
-        let (statement, new_index) = parse_statement(source, index)?;
-        program.push(statement);
-        index = new_index;
+    while start < source.len() {
+        let (_, index) = WHITESPACE(source, start)?;
+        if let Ok((statement, index)) = parse_statement(source, index) {
+            program.push(statement);
+            start = index;
+        } else {
+            break;
+        }
     }
-    Ok((program, index))
+    let (_, start) = WHITESPACE(source, start)?;
+    if start == source.len() {
+        Ok((program, start))
+    } else {
+        Err(ParseError {})
+    }
 }
 
 fn main() {
