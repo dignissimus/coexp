@@ -21,3 +21,11 @@ debug!(case cofn x => x {
     | inl x => 0
     | inr f => f @ 1
 })
+
+S = fn x => fn y => fn z => (x z) (y z)
+K = fn x => fn y => x
+I = fn x => x
+
+coS = cofn x => cofn y => cofn z => (x @ y) @ (y @ z)
+coK = cofn x => cofn y => x 
+coI = cofn x => x 

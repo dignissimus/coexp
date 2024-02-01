@@ -7,6 +7,7 @@ use coexp::Program;
 use coexp::ProgramContext;
 use coexp::Statement::*;
 use coexp::Type::Arrow;
+use coexp::WHITESPACE;
 use colored::Colorize;
 use immutable_chunkmap::map::MapM;
 use rustyline::error::ReadlineError;
@@ -42,8 +43,10 @@ fn repl() {
         }
         print!("coexp> ");
         match parse_program(&line).or_else(|_| {
-            let (expression, index) = parse_expression(&line, 0)?;
-            (if index == line.len() - 1 {
+            let (_, index) = WHITESPACE(&line, 0)?;
+            let (expression, index) = parse_expression(&line, index)?;
+            let (_, index) = WHITESPACE(&line, index)?;
+            (if index == line.len() {
                 Ok((
                     vec![
                         Assignment {

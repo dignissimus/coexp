@@ -16,7 +16,7 @@ pub enum Type {
     Free,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
     Function {
         parameter: String,
@@ -32,11 +32,11 @@ pub enum Expression {
     },
     IntegerLiteral(i64),
     Application {
-        name: String,
+        function: Box<Expression>,
         argument: Box<Expression>,
     },
     Coapplication {
-        name: String,
+        cofunction: Box<Expression>,
         argument: Box<Expression>,
     },
     Name(String),
@@ -50,7 +50,7 @@ pub enum Expression {
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CaseBind {
     name: String,
     expression: Box<Expression>,
@@ -72,7 +72,7 @@ pub struct DataCase {
 #[derive(Debug, Clone)]
 pub enum Value {
     Integer(i64),
-    Function(Expression),
+    Function(Expression, ProgramContext),
     SpeculativeSum,
     Inl(Box<Value>),
     Inr(Box<Value>),
@@ -80,9 +80,19 @@ pub enum Value {
 
 pub type Program = Vec<Statement>;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ProgramContext {
     variables: MapM<String, Expression>,
+}
+
+impl ProgramContext {
+    fn update(&self, other: &Self) -> ProgramContext {
+        ProgramContext {
+            variables: self
+                .variables
+                .union(&other.variables, |_, _, right| Some(right.clone())),
+        }
+    }
 }
 
 fn debug(message: String) {
@@ -102,13 +112,15 @@ impl Expression {
             Function { ref body, .. } => body.is_constant(parameter),
             Cofunction { ref body, .. } => body.is_constant(parameter),
             Application {
-                ref name, argument, ..
-            } => argument.is_constant(parameter) && *name != *parameter,
-            Coapplication {
-                ref name,
+                ref function,
                 ref argument,
                 ..
-            } => argument.is_constant(parameter) && *name != *parameter,
+            } => argument.is_constant(parameter) && function.is_constant(parameter),
+            Coapplication {
+                ref cofunction,
+                ref argument,
+                ..
+            } => argument.is_constant(parameter) && cofunction.is_constant(parameter),
             Inl(expression) => expression.is_constant(parameter),
             Inr(expression) => expression.is_constant(parameter),
             Case { value, inl, inr } => {
@@ -128,8 +140,8 @@ impl Expression {
             Function { body, .. } => body.find_coapplication(parameter),
             Cofunction { body, .. } => body.find_coapplication(parameter),
             Application { argument, .. } => argument.find_coapplication(parameter),
-            Coapplication { ref name, .. } => {
-                if *name == *parameter {
+            Coapplication { ref cofunction, .. } => {
+                if **cofunction == Name(parameter.to_string()) {
                     Some(self)
                 } else {
                     None
@@ -201,14 +213,17 @@ impl ProgramContext {
         match expression {
             IntegerLiteral(int) => Value::Integer(*int),
             Name(name) => self.evaluate(&self.variables[name]),
-            Application { name, argument } => match &self.variables[name] {
-                Function {
-                    parameter,
-                    body,
-                    from,
-                    to,
-                } => {
-                    if !self.typecheck(argument, from) {
+            Application { function, argument } => match self.evaluate(function) {
+                Value::Function(
+                    Function {
+                        parameter,
+                        body,
+                        from,
+                        to,
+                    },
+                    ctx,
+                ) => {
+                    if !self.typecheck(argument, &from) {
                         panic!(
                             "Attempted to apply {:?} to a function of type {:?} -> {:?}",
                             self.resolve(argument),
@@ -222,11 +237,11 @@ impl ProgramContext {
                             .insert(parameter.clone(), self.resolve(argument))
                             .0,
                     };
-                    context.evaluate(body)
+                    context.update(&ctx).evaluate(&body)
                 }
                 _ => panic!("Attempted to apply to non-function type {:?}", expression),
             },
-            Function { .. } => Value::Function(expression.clone()),
+            Function { .. } => Value::Function(expression.clone(), self.clone()),
             Case { value, inl, inr } => {
                 let (context, expression): (ProgramContext, Expression) = match self.resolve(value)
                 {
@@ -429,11 +444,12 @@ macro_rules! sequence {
 
 const alpha: Parser<char> = chars!(
     'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's',
-    't', 'u', 'v', 'w', 'x', 'y', 'z'
+    't', 'u', 'v', 'w', 'x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L',
+    'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'
 );
 const numeral: Parser<char> = chars!('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
 
-const WHITESPACE: Parser<Vec<char>> = many!(chars!(' ', '\n'));
+pub const WHITESPACE: Parser<Vec<char>> = many!(chars!(' ', '\n'));
 const parse_name: Parser<String> = map!(many1!(alpha), |result: Vec<char>| result.iter().collect());
 // TODO: unwrap
 const parse_integer: Parser<Expression> = map!(
@@ -536,21 +552,33 @@ fn parse_cofunction(source: &String, index: usize) -> ParseResult<Expression> {
 }
 
 fn parse_application(source: &String, index: usize) -> ParseResult<Expression> {
-    let (name, index) = parse_name(source, index)?;
+    let (function, index) = map!(
+        any!(map!(parse_name, Name), parse_bracketed_expression),
+        Box::new
+    )(source, index)?;
     let (_, index) = many!(exact!(' '))(source, index)?;
     let (value, index) = parse_expression(source, index)?;
     let argument = Box::new(value);
-    Ok((Application { name, argument }, index))
+    Ok((Application { function, argument }, index))
 }
 
 fn parse_coapplication(source: &String, index: usize) -> ParseResult<Expression> {
-    let (name, index) = parse_name(source, index)?;
+    let (cofunction, index) = map!(
+        any!(map!(parse_name, Name), parse_bracketed_expression),
+        Box::new
+    )(source, index)?;
     let (_, index) = WHITESPACE(source, index)?;
     let (_, index) = exact!('@')(source, index)?;
     let (_, index) = WHITESPACE(source, index)?;
     let (value, index) = parse_expression(source, index)?;
     let argument = Box::new(value);
-    Ok((Coapplication { name, argument }, index))
+    Ok((
+        Coapplication {
+            cofunction,
+            argument,
+        },
+        index,
+    ))
 }
 
 fn parse_bracketed_expression(source: &String, index: usize) -> ParseResult<Expression> {
@@ -561,7 +589,6 @@ fn parse_bracketed_expression(source: &String, index: usize) -> ParseResult<Expr
 }
 
 pub const parse_expression: Parser<Expression> = any!(
-    parse_bracketed_expression,
     parse_inl,
     parse_inr,
     parse_case,
@@ -571,6 +598,7 @@ pub const parse_expression: Parser<Expression> = any!(
     parse_unit,
     parse_coapplication,
     parse_application,
+    parse_bracketed_expression,
     map!(parse_name, Name)
 );
 
@@ -654,7 +682,7 @@ mod tests {
             Assignment {
                 name: "value".to_string(),
                 value: Application {
-                    name: "identity".to_string(),
+                    function: Box::new(Name("identity".to_string())),
                     argument: Box::new(IntegerLiteral(5)),
                 },
             },
@@ -666,7 +694,7 @@ mod tests {
                 value: Function {
                     parameter: "x".to_string(),
                     body: Box::new(Application {
-                        name: "identity'".to_string(),
+                        function: Box::new(Name("identity'".to_string())),
                         argument: Box::new(Name("x".to_string())),
                     }),
                     from: Arrow(Box::new(Type::Integer), Box::new(Type::Integer)),
@@ -676,7 +704,7 @@ mod tests {
             Assignment {
                 name: "value''".to_string(),
                 value: Application {
-                    name: "value'".to_string(),
+                    function: Box::new(Name("value'".to_string())),
                     argument: Box::new(Name("identity".to_string())),
                 },
             },
@@ -731,7 +759,7 @@ mod tests {
                     inr: CaseBind {
                         name: "k".to_string(),
                         expression: Box::new(Coapplication {
-                            name: "k".to_string(),
+                            cofunction: Box::new(Name("k".to_string())),
                             argument: Box::new(Inl(Box::new(IntegerLiteral(1)))),
                         }),
                     },
@@ -753,7 +781,7 @@ mod tests {
                     inr: CaseBind {
                         name: "k".to_string(),
                         expression: Box::new(Coapplication {
-                            name: "k".to_string(),
+                            cofunction: Box::new(Name("k".to_string())),
                             argument: Box::new(Inl(Box::new(Name("k".to_string())))),
                         }),
                     },
@@ -806,5 +834,13 @@ mod tests {
                 .to_string()
             )
         );
+
+        debug!("{:?}", parse_bracketed_expression(&"(1)".to_string(), 0));
+        debug!("{:?}", parse_expression(&"(1)".to_string(), 0).unwrap());
+        debug!(
+            "{:?}",
+            parse_program(&"S = fn x => fn y => fn z => (x z) (y z)".to_string())
+        );
+        debug!("{:?}", parse_program(&"K = fn x => x".to_string()));
     }
 }
