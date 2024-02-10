@@ -48,6 +48,7 @@ pub enum Expression {
         inl: CaseBind,
         inr: CaseBind,
     },
+    Add(Box<Expression>, Box<Expression>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,7 +70,7 @@ pub struct DataCase {
     name: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Integer(i64),
     Function(Expression, ProgramContext),
@@ -80,7 +81,7 @@ pub enum Value {
 
 pub type Program = Vec<Statement>;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ProgramContext {
     variables: MapM<String, Expression>,
 }
@@ -211,6 +212,10 @@ impl ProgramContext {
     // * Line numbers for error messages
     fn evaluate(&self, expression: &Expression) -> Value {
         match expression {
+            Add(left, right) => match (self.evaluate(left), self.evaluate(right)) {
+                (Value::Integer(left), Value::Integer(right)) => Value::Integer(left + right),
+                _ => panic!("Attempted to add non-integers"),
+            },
             IntegerLiteral(int) => Value::Integer(*int),
             Name(name) => self.evaluate(&self.variables[name]),
             Application { function, argument } => match self.evaluate(function) {
@@ -842,5 +847,103 @@ mod tests {
             parse_program(&"S = fn x => fn y => fn z => (x z) (y z)".to_string())
         );
         debug!("{:?}", parse_program(&"K = fn x => x".to_string()));
+    }
+
+    macro_rules! add {
+        ($left:expr, $right:expr) => {
+            Add(Box::new($left), Box::new($right))
+        };
+    }
+
+    macro_rules! int {
+        ($x:expr) => {
+            IntegerLiteral($x)
+        };
+    }
+
+    macro_rules! name {
+        ($x:expr) => {
+            Name(stringify!($x).to_string())
+        };
+    }
+
+    macro_rules! lambda {
+        ($p:expr, $body:expr) => {
+            Function {
+                parameter: stringify!($p).to_string(),
+                body: Box::new($body),
+                from: Type::Free,
+                to: Type::Free,
+            }
+        };
+    }
+
+    macro_rules! apply {
+        ($f:expr, $x:expr) => {
+            Application {
+                function: Box::new($f),
+                argument: Box::new($x),
+            }
+        };
+    }
+
+    macro_rules! function {
+        ($f:expr) => {
+            Value::Function($f, ProgramContext::new())
+        };
+        ($f:expr, $c:expr) => {
+            Value::Function($f, $c)
+        };
+    }
+
+    #[test]
+    fn test_evaluation() {
+        let context = ProgramContext::new();
+
+        let cases = [
+            (add!(int!(1), int!(2)), Value::Integer(3)),
+            (lambda!(x, name!(x)), function!(lambda!(x, name!(x)))),
+            (
+                apply!(lambda!(x, name!(x)), add!(int!(1), int!(2))),
+                Value::Integer(3),
+            ),
+            (
+                apply!(lambda!(x, add!(name!(x), int!(1))), int!(1)),
+                Value::Integer(2),
+            ),
+            (
+                apply!(
+                    apply!(lambda!(x, lambda!(y, add!(name!(x), name!(y)))), int!(1)),
+                    int!(2)
+                ),
+                Value::Integer(3),
+            ),
+            (
+                apply!(
+                    apply!(
+                        apply!(
+                            apply!(
+                                lambda!(
+                                    g,
+                                    lambda!(
+                                        f,
+                                        lambda!(x, apply!(name!(g), apply!(name!(f), name!(x))))
+                                    )
+                                ),
+                                lambda!(x, lambda!(y, add!(name!(x), name!(y))))
+                            ),
+                            lambda!(x, add!(name!(x), int!(1)))
+                        ),
+                        int!(0)
+                    ),
+                    int!(1)
+                ),
+                Value::Integer(2),
+            ),
+        ];
+
+        cases
+            .iter()
+            .for_each(|(program, result)| assert_eq!(context.evaluate(program), *result));
     }
 }
